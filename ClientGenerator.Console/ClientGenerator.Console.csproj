@@ -63,8 +63,8 @@
     <Reference Include="System.Data" />
     <Reference Include="System.Net.Http" />
     <Reference Include="System.Xml" />
-    <Reference Include="TypescriptCodeDom, Version=1.0.0.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\TypescriptCodeDom.1.0.3\lib\TypescriptCodeDom.dll</HintPath>
+    <Reference Include="TypescriptCodeDom, Version=0.9.0.0, Culture=neutral, PublicKeyToken=b0a63f3c91b610ab, processorArchitecture=MSIL">
+      <HintPath>..\packages\ClientGenerator.CodeGenerator.Typescript.0.9.0-beta\lib\TypescriptCodeDom.dll</HintPath>
       <Private>True</Private>
     </Reference>
   </ItemGroup>
@@ -73,7 +73,9 @@
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="App.config" />
+    <None Include="App.config">
+      <SubType>Designer</SubType>
+    </None>
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
