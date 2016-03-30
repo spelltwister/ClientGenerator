@@ -103,7 +103,7 @@ namespace ClientGenerator
 				var currentNamespace = new CodeNamespace(nsTypes.Key);
 				foreach (Type type in nsTypes)
 				{
-					currentNamespace.Types.Add(CreateTypeDeclaration(type, typesByNamespace, propertySelectors));
+					currentNamespace.Types.AddRange(CreateTypeDeclarations(type, typesByNamespace, propertySelectors));
 				}
 				compileUnit.Namespaces.Add(currentNamespace);
 			}
@@ -111,23 +111,16 @@ namespace ClientGenerator
 			return compileUnit;
 		}
 
-		private static CodeTypeDeclaration CreateTypeDeclaration(Type type, ILookup<string, Type> typesByNamespace, IPropertySelector[] propertySelectors)
+		private static CodeTypeDeclaration[] CreateTypeDeclarations(Type type, ILookup<string, Type> typesByNamespace, IPropertySelector[] propertySelectors)
 		{
 			if (type.IsClass || (type.IsValueType && !type.IsPrimitive && !type.IsEnum))
 			{
-				CodeTypeDeclaration declaration = CreateCustomTypeDeclaration(type, propertySelectors);
-
-				if (null != type.BaseType && typesByNamespace.Contains(type.BaseType.Namespace))
-				{
-					declaration.BaseTypes.Add(type.BaseType);
-				}
-
-				return declaration;
+				return CreateCustomTypeDeclarations(type, propertySelectors, typesByNamespace);
 			}
 
 			if (type.IsEnum)
 			{
-				return CreateEnumTypeDeclaration(type);
+			    return new[] {CreateEnumTypeDeclaration(type)};
 			}
 
 			throw new NotSupportedException("Unable to create type declaration.  Type not supported.");
@@ -156,29 +149,136 @@ namespace ClientGenerator
 			return declaration;
 		}
 
-		private static CodeTypeDeclaration CreateCustomTypeDeclaration(Type type, IPropertySelector[] propertySelectors)
+	    private class TypeNames
+	    {
+	        public string ReadonlyName { get; set; }
+            public string EditName { get; set; }
+	    }
+
+	    private static TypeNames GetTypeNames(Type type)
+	    {
+            // TODO: better name handling
+            if (type.IsGenericType)
+            {
+                
+                string typeNameNoParams = type.Name.Remove(type.Name.IndexOf('`'));
+                string typeParams = $"<{string.Join(", ", type.GetTypeInfo().GenericTypeParameters.Select(x => x.Name))}>";
+                return new TypeNames()
+                {
+                    ReadonlyName = $"{typeNameNoParams}{typeParams}",
+                    EditName = $"{typeNameNoParams}Edit{typeParams}"
+                };
+            }
+
+	        if (type.IsPrimitive || type.Namespace.StartsWith("System", StringComparison.OrdinalIgnoreCase))
+	        {
+	            return new TypeNames()
+	            {
+	                ReadonlyName = type.Name,
+                    EditName = type.Name
+	            };
+	        }
+
+            return new TypeNames()
+            {
+                ReadonlyName = type.Name,
+                EditName = $"{type.Name}Edit"
+            };
+        }
+
+		private static CodeTypeDeclaration[] CreateCustomTypeDeclarations(Type type, IPropertySelector[] propertySelectors, ILookup<string, Type> typesByNamespace)
 		{
 			// TODO: better name handling
-			string typeName = type.Name;
-			if (type.IsGenericType)
-			{
-				typeName = typeName.Remove(typeName.IndexOf('`'));
-				typeName = $"{typeName}<{string.Join(", ", type.GetTypeInfo().GenericTypeParameters.Select(x => x.Name))}>";
-			}
-			
-			CodeTypeDeclaration ret = new CodeTypeDeclaration(typeName)
-			{
-				//TypeAttributes = TypeAttributes.Public | TypeAttributes.Class
-				TypeAttributes = TypeAttributes.Public | TypeAttributes.Interface
-			};
+		    TypeNames names = GetTypeNames(type);
 
-			AddFieldsToTypeDeclaration(type, ret);
-			AddPropertiesToTypeDeclaration(type, ret, propertySelectors);
+		    var declaration = CreateDtoInterface(type, propertySelectors, names.ReadonlyName);
+            SetBaseTypeIfNecessary(type, typesByNamespace, declaration);
 
-			return ret;
+		    var editDeclaration = CreateDtoEditClass(type, propertySelectors, names.EditName);
+            SetBaseTypeIfNecessary(type, typesByNamespace, editDeclaration);
+
+            return new[] {declaration/*, editDeclaration*/};
 		}
 
-		private static void AddPropertiesToTypeDeclaration(Type type, CodeTypeDeclaration declaration, IPropertySelector[] propertySelectors)
+	    private static void SetBaseTypeIfNecessary(Type type, ILookup<string, Type> typesByNamespace, CodeTypeDeclaration declaration)
+	    {
+            if (null != type.BaseType && typesByNamespace.Contains(type.BaseType.Namespace))
+            {
+                declaration.BaseTypes.Add(type.BaseType);
+            }
+        }
+
+	    private static CodeTypeDeclaration CreateDtoInterface(Type type, IPropertySelector[] propertySelectors, string typeName)
+	    {
+            CodeTypeDeclaration ret = new CodeTypeDeclaration(typeName)
+            {
+                TypeAttributes = TypeAttributes.Public | TypeAttributes.Interface
+            };
+
+            AddFieldsToTypeDeclaration(type, ret);
+            AddPropertiesToTypeDeclaration(type, ret, propertySelectors);
+
+            return ret;
+        }
+
+	    private static CodeTypeDeclaration CreateDtoEditClass(Type type, IPropertySelector[] propertySelectors, string typeName)
+	    {
+            CodeTypeDeclaration ret = new CodeTypeDeclaration(typeName)
+            {
+                TypeAttributes = TypeAttributes.Public | TypeAttributes.Class
+            };
+
+            AddFieldsToTypeDeclaration(type, ret); // TODO: observable?
+            AddObservablePropertiesToTypeDeclaration(type, ret, propertySelectors);
+            
+            return ret;
+        }
+
+        private static void AddObservablePropertiesToTypeDeclaration(Type type, CodeTypeDeclaration declaration, IPropertySelector[] propertySelectors)
+        {
+            // create public constructor
+            CodeConstructor ctor = new CodeConstructor
+            {
+                Attributes = MemberAttributes.Public | MemberAttributes.Final
+            };
+
+            // add initial value parameter to signature
+            ctor.Parameters.Add(new CodeParameterDeclarationExpression(new CodeTypeReference(GetTypeNames(type).ReadonlyName), "initialValue"));
+
+
+            foreach (var propertyInfo in type.GetProperties(BindingFlags.DeclaredOnly | BindingFlags.Instance | BindingFlags.Public)
+                                             .Select(x => new { ConversionType = propertySelectors.Select(y => y.GetPropertyConversionType(x)).Max(), PropertyInfo = x })
+                                             .Where(x => x.ConversionType != ePropertyConversionType.None))
+            {
+                CodeTypeReference reference;
+                if (propertyInfo.PropertyInfo.PropertyType.IsPrimitive)
+                {
+                    //reference = new CodeTypeReference($"KnockoutObservable<{propertyInfo.PropertyInfo.PropertyType.Name}>");
+                    reference = new CodeTypeReference(typeof(IObservable<>).MakeGenericType(new Type[] { propertyInfo.PropertyInfo.PropertyType }));
+                }
+                else
+                {
+                    reference = new CodeTypeReference(GetTypeNames(propertyInfo.PropertyInfo.PropertyType).EditName);
+                }
+
+                declaration.Members.Add(new CodeMemberField()
+                {
+                    Name = $"{propertyInfo.PropertyInfo.Name}",
+                    Type = reference
+                });
+                
+                var thisPropertyReference = new CodeFieldReferenceExpression(new CodeThisReferenceExpression(), $"{propertyInfo.PropertyInfo.Name}");
+                var initialValueReference = new CodeArgumentReferenceExpression("initialValue");
+                var thisPropertyInitialValueReference = new CodeFieldReferenceExpression(initialValueReference, $"{propertyInfo.PropertyInfo.Name}");
+                var safePropertyInitialization = new CodeBinaryOperatorExpression(initialValueReference, CodeBinaryOperatorType.BooleanAnd, thisPropertyInitialValueReference);
+
+                ctor.Statements.Add(new CodeAssignStatement(thisPropertyReference, new CodeObjectCreateExpression(reference, safePropertyInitialization)));
+            }
+
+            declaration.Members.Add(ctor);
+        }
+
+        private static void AddPropertiesToTypeDeclaration(Type type, CodeTypeDeclaration declaration, IPropertySelector[] propertySelectors)
 		{
 			foreach (var propertyInfo in type.GetProperties(BindingFlags.DeclaredOnly | BindingFlags.Instance | BindingFlags.Public)
 											 .Select(x => new { ConversionType = propertySelectors.Select(y => y.GetPropertyConversionType(x)).Max(), PropertyInfo = x })
