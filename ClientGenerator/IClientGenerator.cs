@@ -1,5 +1,6 @@
 ﻿using System;
 using System.CodeDom;
+using System.Collections;
 using System.Linq;
 using System.Reflection;
 using AssemblyTypeLoader;
@@ -242,23 +243,44 @@ namespace ClientGenerator
                 Attributes = MemberAttributes.Public | MemberAttributes.Final
             };
 
-            // add initial value parameter to signature
-            ctor.Parameters.Add(new CodeParameterDeclarationExpression(new CodeTypeReference(GetTypeNames(type).ReadonlyName), "initialValue"));
+            const string initValue = "initialValue";
 
+            // add initial value parameter to signature
+            ctor.Parameters.Add(new CodeParameterDeclarationExpression(new CodeTypeReference(GetTypeNames(type).ReadonlyName), initValue));
+
+            if (type.BaseType != null && type.BaseType != typeof(Object))
+            {
+                ctor.BaseConstructorArgs.Add(new CodeArgumentReferenceExpression(initValue));
+            }
+
+            var initialValueReference = new CodeArgumentReferenceExpression(initValue);
+            var koObservableReference = new CodeMethodReferenceExpression(new CodeVariableReferenceExpression("ko"), "observable");
+            var koObservableArrayReference = new CodeMethodReferenceExpression(new CodeVariableReferenceExpression("ko"), "observableArray");
 
             foreach (var propertyInfo in type.GetProperties(BindingFlags.DeclaredOnly | BindingFlags.Instance | BindingFlags.Public)
                                              .Select(x => new { ConversionType = propertySelectors.Select(y => y.GetPropertyConversionType(x)).Max(), PropertyInfo = x })
                                              .Where(x => x.ConversionType != ePropertyConversionType.None))
             {
+                var thisPropertyReference = new CodeFieldReferenceExpression(new CodeThisReferenceExpression(), $"{propertyInfo.PropertyInfo.Name}");
+                var thisPropertyInitialValueReference = new CodeFieldReferenceExpression(initialValueReference, $"{propertyInfo.PropertyInfo.Name}");
+                var safePropertyInitialization = new CodeBinaryOperatorExpression(initialValueReference, CodeBinaryOperatorType.BooleanAnd, thisPropertyInitialValueReference);
+                
                 CodeTypeReference reference;
                 if (propertyInfo.PropertyInfo.PropertyType.IsPrimitive || propertyInfo.PropertyInfo.PropertyType.Namespace.StartsWith("System", StringComparison.OrdinalIgnoreCase))
                 {
-                    //reference = new CodeTypeReference($"KnockoutObservable<{propertyInfo.PropertyInfo.PropertyType.Name}>");
                     reference = new CodeTypeReference(typeof(IObservable<>).MakeGenericType(new Type[] { propertyInfo.PropertyInfo.PropertyType }));
+
+                    CodeMethodReferenceExpression methodReference = typeof(String) != propertyInfo.PropertyInfo.PropertyType && typeof(IEnumerable).IsAssignableFrom(propertyInfo.PropertyInfo.PropertyType)
+                                                                        ? koObservableArrayReference
+                                                                        : koObservableReference;
+
+                    ctor.Statements.Add(new CodeAssignStatement(thisPropertyReference, new CodeMethodInvokeExpression(methodReference, safePropertyInitialization)));
                 }
                 else
                 {
                     reference = new CodeTypeReference(GetTypeNames(propertyInfo.PropertyInfo.PropertyType).EditName);
+                    
+                    ctor.Statements.Add(new CodeAssignStatement(thisPropertyReference, new CodeObjectCreateExpression(reference, safePropertyInitialization)));
                 }
 
                 declaration.Members.Add(new CodeMemberField()
@@ -266,13 +288,6 @@ namespace ClientGenerator
                     Name = $"{propertyInfo.PropertyInfo.Name}",
                     Type = reference
                 });
-                
-                var thisPropertyReference = new CodeFieldReferenceExpression(new CodeThisReferenceExpression(), $"{propertyInfo.PropertyInfo.Name}");
-                var initialValueReference = new CodeArgumentReferenceExpression("initialValue");
-                var thisPropertyInitialValueReference = new CodeFieldReferenceExpression(initialValueReference, $"{propertyInfo.PropertyInfo.Name}");
-                var safePropertyInitialization = new CodeBinaryOperatorExpression(initialValueReference, CodeBinaryOperatorType.BooleanAnd, thisPropertyInitialValueReference);
-
-                ctor.Statements.Add(new CodeAssignStatement(thisPropertyReference, new CodeObjectCreateExpression(reference, safePropertyInitialization)));
             }
 
             declaration.Members.Add(ctor);
