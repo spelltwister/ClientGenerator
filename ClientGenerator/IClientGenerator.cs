@@ -174,8 +174,8 @@ namespace ClientGenerator
 	        {
 	            return new TypeNames()
 	            {
-	                ReadonlyName = type.Name,
-                    EditName = type.Name
+	                ReadonlyName = type.FullName,
+                    EditName = type.FullName
 	            };
 	        }
 
@@ -251,7 +251,7 @@ namespace ClientGenerator
                                              .Where(x => x.ConversionType != ePropertyConversionType.None))
             {
                 CodeTypeReference reference;
-                if (propertyInfo.PropertyInfo.PropertyType.IsPrimitive)
+                if (propertyInfo.PropertyInfo.PropertyType.IsPrimitive || propertyInfo.PropertyInfo.PropertyType.Namespace.StartsWith("System", StringComparison.OrdinalIgnoreCase))
                 {
                     //reference = new CodeTypeReference($"KnockoutObservable<{propertyInfo.PropertyInfo.PropertyType.Name}>");
                     reference = new CodeTypeReference(typeof(IObservable<>).MakeGenericType(new Type[] { propertyInfo.PropertyInfo.PropertyType }));
