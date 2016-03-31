@@ -50,6 +50,9 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="CustomDtoInterfaceTypesClientGenerator.cs" />
+    <Compile Include="CustomEditTypesClientGenerator.cs" />
+    <Compile Include="CustomTypesClientGenerator.cs" />
     <Compile Include="IClientGenerator.cs" />
     <Compile Include="IClientGeneratorOptions.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
