@@ -57,15 +57,25 @@ namespace ClientGenerator
             var typesByNamespace = types.ToLookup(x => x.Namespace);
             foreach (var nsTypes in typesByNamespace)
             {
-                var currentNamespace = new CodeNamespace(nsTypes.Key);
-                foreach (Type type in nsTypes)
-                {
-                    currentNamespace.Types.AddRange(CreateTypeDeclarations(type));
-                }
-                compileUnit.Namespaces.Add(currentNamespace);
+                compileUnit.Namespaces.Add(CreateNamespace(nsTypes));
             }
 
             return compileUnit;
+        }
+
+        protected virtual CodeNamespace CreateNamespace(IGrouping<string, Type> nsTypes)
+        {
+            var currentNamespace = new CodeNamespace(CreateNamespaceString(nsTypes.Key));
+            foreach (Type type in nsTypes)
+            {
+                currentNamespace.Types.AddRange(CreateTypeDeclarations(type));
+            }
+            return currentNamespace;
+        }
+
+        protected virtual string CreateNamespaceString(string originalNamespace)
+        {
+            return originalNamespace;
         }
 
         protected virtual CodeTypeDeclaration[] CreateTypeDeclarations(Type type)
@@ -108,12 +118,13 @@ namespace ClientGenerator
             FieldInfo[] fields = type.GetFields(BindingFlags.Public | BindingFlags.Static);
             for (int i = 0, max = fields.Length; i < max; i++)
             {
+                int enumValue = (int)Convert.ChangeType(fields[i].GetValue(null), typeof(int));
                 declaration.Members.Add(new CodeMemberField()
                 {
                     Name = fields[i].Name,
                     Type = new CodeTypeReference(fields[0].FieldType),
-                    InitExpression = (int)Convert.ChangeType(fields[i].GetValue(null), typeof(int)) != i
-                        ? new CodePrimitiveExpression(i)
+                    InitExpression = enumValue != i
+                        ? new CodePrimitiveExpression(enumValue)
                         : null
                 });
             }
@@ -187,7 +198,7 @@ namespace ClientGenerator
 
         protected virtual void AddMethodsToTypeDeclaration(Type interfaceType, CodeTypeDeclaration declaration)
         {
-            foreach (var methodInfo in interfaceType.GetMethods(PublicInstanceDeclaredOnly))
+            foreach (var methodInfo in interfaceType.GetMethods(PublicInstanceDeclaredOnly).Where(x => !x.IsSpecialName /*getter/setter*/))
             {
                 declaration.Members.Add(Create(methodInfo));
             }
@@ -197,6 +208,7 @@ namespace ClientGenerator
         {
             var ret = new CodeMemberMethod()
             {
+                Attributes = MemberAttributes.Public,
                 Name = methodInfo.Name,
                 ReturnType = new CodeTypeReference(methodInfo.ReturnType)
             };
