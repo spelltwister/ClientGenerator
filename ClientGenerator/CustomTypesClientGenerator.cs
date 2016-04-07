@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Reflection;
 using AssemblyTypeLoader;
 
@@ -17,7 +18,10 @@ namespace ClientGenerator
 
         protected override Type[] LoadTypes(Assembly assembly)
         {
-            return this.TypeLoader.FetchTypes(assembly, this.Options.TypeSelectors);
+            return this.TypeLoader
+                       .FetchTypes(assembly)
+                       .Where(x => this.Options.TypeSelectors.Length == 0 || this.Options.TypeSelectors.Any(y => y.ShouldKeepType(x)))
+                       .ToArray();
         }
     }
 }

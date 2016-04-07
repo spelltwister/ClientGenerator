@@ -17,20 +17,15 @@ namespace ClientGenerator.Console
 			string assemblyFilePath = args[0];
 			string outputFileDirectory = args[1];
 
-			//AppDomain.CurrentDomain.ReflectionOnlyAssemblyResolve += CurrentDomain_ReflectionOnlyAssemblyResolve;
-			//Assembly targetAssembly = Assembly.ReflectionOnlyLoadFrom(assemblyFilePath);
-
-			AppDomain.CurrentDomain.AssemblyResolve += CurrentDomain_AssemblyResolve;
-			Assembly targetAssembly = Assembly.LoadFrom(assemblyFilePath);
-
+		    Assembly targetAssembly = LoadAssemblyAndDependenciesFrom(assemblyFilePath);
             var options = new ClientGeneratorOptions()
             {
                 PropertySelectors = new IPropertySelector[] { new AllPropertySelector() },
-                TypeSelectors = new ITypeSelector[] { new ClassTypeSelector(), new EnumTypeSelector() }
+                TypeSelectors = new ITypeSelector[] { }
             };
 
-            CodeCompileUnit dtoGraph = new CustomDtoInterfaceTypesClientGenerator(new TypeLoader(), options).GenerateClient(targetAssembly);
-            CodeCompileUnit dtoEditGraph = new CustomEditTypesClientGenerator(new TypeLoader(), options).GenerateClient(targetAssembly);
+            CodeCompileUnit dtoGraph = new CustomDtoInterfaceTypesClientGenerator(new DtoTypeLoader(), options).GenerateClient(targetAssembly);
+            CodeCompileUnit dtoEditGraph = new CustomEditTypesClientGenerator(new DtoTypeLoader(), options).GenerateClient(targetAssembly);
 			
 			string tsOutputFilePath = Path.Combine(outputFileDirectory,
 				                                   "TypeScript",
@@ -57,15 +52,31 @@ namespace ClientGenerator.Console
                 new KnockoutTypescriptCodeProvider().CreateGenerator().GenerateCodeFromCompileUnit(dtoEditGraph, sw, codeGeneratorOptions);
             }
         }
-        
-		private static Assembly CurrentDomain_AssemblyResolve(object sender, ResolveEventArgs args)
+
+	    private static Assembly LoadAssemblyAndDependenciesFrom(string assemblyFilePath)
+	    {
+            AppDomain.CurrentDomain.AssemblyResolve += CurrentDomain_AssemblyResolve;
+            Assembly targetAssembly = Assembly.LoadFrom(assemblyFilePath);
+            AppDomain.CurrentDomain.AssemblyResolve -= CurrentDomain_AssemblyResolve;
+            return targetAssembly;
+        }
+
+        private static Assembly CurrentDomain_AssemblyResolve(object sender, ResolveEventArgs args)
 		{
 			return Assembly.Load(args.Name);
 		}
 
-		private static Assembly CurrentDomain_ReflectionOnlyAssemblyResolve(object sender, ResolveEventArgs args)
-		{
-			return Assembly.ReflectionOnlyLoad(args.Name);
-		}
-	}
+        //private static Assembly ReflectionOnlyLoadAssemblyAndDependenciesFrom(string assemblyFilePath)
+        //{
+        //    AppDomain.CurrentDomain.ReflectionOnlyAssemblyResolve += CurrentDomain_ReflectionOnlyAssemblyResolve;
+        //    Assembly targetAssembly = Assembly.ReflectionOnlyLoadFrom(assemblyFilePath);
+        //    AppDomain.CurrentDomain.ReflectionOnlyAssemblyResolve -= CurrentDomain_ReflectionOnlyAssemblyResolve;
+        //    return targetAssembly;
+        //}
+
+        //private static Assembly CurrentDomain_ReflectionOnlyAssemblyResolve(object sender, ResolveEventArgs args)
+        //{
+        //	return Assembly.ReflectionOnlyLoad(args.Name);
+        //}
+    }
 }
